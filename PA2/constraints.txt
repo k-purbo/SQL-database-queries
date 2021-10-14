@@ -1,0 +1,211 @@
+-- 1.
+
+ALTER TABLE customer
+DROP CONSTRAINT fk_cust;
+
+ALTER TABLE customer
+ADD CONSTRAINT fk_cust FOREIGN KEY (c_nationkey) REFERENCES nation
+ON UPDATE CASCADE;
+
+ALTER TABLE supplier
+DROP CONSTRAINT fk_supp;
+
+ALTER TABLE supplier
+ADD CONSTRAINT fk_supp FOREIGN KEY (s_nationkey) REFERENCES nation
+ON UPDATE CASCADE;
+
+-- 2.
+
+CREATE FUNCTION part_price() RETURNS TRIGGER AS 
+$part_price$
+BEGIN
+	IF NEW.p_retailprice<>OLD.p_retailprice THEN
+	UPDATE partsupp
+	SET ps_supplycost = (ps_supplycost + (NEW.p_retailprice - OLD.p_retailprice))
+	WHERE ps_partkey = OLD.p_partkey;
+	END IF;
+
+	RETURN NEW;
+END;
+$part_price$ LANGUAGE plpgsql;
+
+CREATE TRIGGER part_price
+BEFORE UPDATE ON part
+FOR EACH ROW
+EXECUTE PROCEDURE part_price();
+
+-- 3.
+
+CREATE FUNCTION open_orders() RETURNS TRIGGER AS
+$open_orders$
+BEGIN
+	IF ((SELECT COUNT(o_custkey)
+		FROM orders
+		WHERE (NEW.o_custkey = o_custkey) AND (o_orderstatus = 'O')) < 14) THEN
+	RETURN NEW;
+	END IF;
+END;
+$open_orders$ LANGUAGE plpgsql;
+
+CREATE TRIGGER open_orders
+BEFORE INSERT ON orders
+FOR EACH ROW
+EXECUTE PROCEDURE open_orders();
+
+-- 4.
+
+ALTER TABLE orders 
+DROP CONSTRAINT fk_orders;
+
+ALTER TABLE orders
+ADD CONSTRAINT fk_orders FOREIGN KEY (o_custkey) REFERENCES customer
+ON DELETE CASCADE;
+
+ALTER TABLE lineitem
+DROP CONSTRAINT fk_line_orders;
+
+ALTER TABLE lineitem
+ADD CONSTRAINT fk_line_orders FOREIGN KEY (l_orderkey) REFERENCES orders
+ON DELETE CASCADE;
+
+-- 5.
+
+CREATE FUNCTION lineitem_status() RETURNS TRIGGER AS
+$lineitem_status$
+BEGIN
+
+	IF (EXISTS (SELECT *
+				FROM lineitem
+				WHERE (l_orderkey = NEW.l_orderkey AND l_linestatus <> NEW.l_linestatus))) THEN
+
+		UPDATE orders
+		SET o_orderstatus = 'P'
+		WHERE o_orderkey = NEW.l_orderkey;
+
+	ELSE
+
+		UPDATE orders
+		SET o_orderstatus = NEW.l_linestatus
+		WHERE o_orderkey = NEW.l_orderkey;
+
+	END IF;
+	
+	RETURN NEW;
+
+END;
+$lineitem_status$ LANGUAGE plpgsql;
+
+CREATE TRIGGER lineitem_status
+AFTER INSERT ON lineitem
+FOR EACH ROW
+EXECUTE PROCEDURE lineitem_status();
+
+-- 6.
+
+ALTER TABLE nation
+DROP CONSTRAINT fk_nation;
+
+ALTER TABLE nation
+ADD CONSTRAINT fk_nation FOREIGN KEY (n_regionkey) REFERENCES region
+ON DELETE CASCADE;
+
+ALTER TABLE customer
+DROP CONSTRAINT fk_cust;
+
+ALTER TABLE customer
+ADD CONSTRAINT fk_cust FOREIGN KEY (c_nationkey) REFERENCES nation
+ON UPDATE CASCADE
+ON DELETE SET NULL;
+
+ALTER TABLE supplier
+DROP CONSTRAINT fk_supp;
+
+ALTER TABLE supplier
+ADD CONSTRAINT fk_supp FOREIGN KEY (s_nationkey) REFERENCES nation
+ON UPDATE CASCADE
+ON DELETE CASCADE;
+
+ALTER TABLE partsupp
+DROP CONSTRAINT fk_partsupp_supp;
+
+ALTER TABLE partsupp
+ADD CONSTRAINT fk_partsupp_supp FOREIGN KEY (ps_suppkey) REFERENCES supplier
+ON DELETE CASCADE;
+
+ALTER TABLE lineitem
+DROP CONSTRAINT fk_line_partsupp;
+
+ALTER TABLE lineitem
+ADD CONSTRAINT fk_line_partsupp FOREIGN KEY (l_partkey, l_suppkey) REFERENCES partsupp
+ON DELETE SET NULL;
+
+-- 7.
+
+CREATE FUNCTION nationkey_upd() RETURNS TRIGGER AS
+$nationkey_upd$
+
+DECLARE
+	old_rkey INTEGER;
+	new_rkey INTEGER;
+
+BEGIN
+
+	old_rkey := (SELECT n_regionkey
+					FROM nation
+					WHERE n_nationkey = OLD.s_nationkey);
+
+	new_rkey := (SELECT n_regionkey
+					FROM nation
+					WHERE n_nationkey = NEW.s_nationkey);
+
+	IF (old_rkey <> new_rkey) THEN
+		IF (old_rkey = 1) THEN
+			IF (new_rkey = 2) THEN
+				UPDATE partsupp
+				SET ps_supplycost = ps_supplycost * 0.8
+				WHERE ps_suppkey = OLD.s_suppkey;
+
+												
+			ELSIF (new_rkey = 3) THEN
+				UPDATE partsupp
+				SET ps_supplycost = ps_supplycost * 1.05
+				WHERE ps_suppkey = OLD.s_suppkey;
+
+			END IF;
+
+		ELSIF (old_rkey = 2) THEN
+			IF (new_rkey = 1) THEN
+				UPDATE partsupp
+				SET ps_supplycost = ps_supplycost * 1.2
+				WHERE ps_suppkey = OLD.s_suppkey;	
+
+			ELSIF (new_rkey = 3) THEN
+				UPDATE partsupp
+				SET ps_supplycost = ps_supplycost * 1.1
+				WHERE ps_suppkey = OLD.s_suppkey;									
+			END IF;
+
+		ELSIF (old_rkey = 3) THEN
+			IF (new_rkey = 1) THEN
+				UPDATE partsupp
+				SET ps_supplycost = ps_supplycost * 0.95
+				WHERE ps_suppkey = OLD.s_suppkey;
+
+			ELSIF (new_rkey = 2) THEN
+				UPDATE partsupp
+				SET ps_supplycost = ps_supplycost * 0.9
+				WHERE ps_suppkey = OLD.s_suppkey;
+			END IF;
+
+		END IF;
+
+	END IF;
+
+RETURN NEW;
+END;
+$nationkey_upd$ LANGUAGE plpgsql;
+
+CREATE TRIGGER nationkey_upd
+AFTER UPDATE ON supplier
+FOR EACH ROW
+EXECUTE PROCEDURE nationkey_upd();

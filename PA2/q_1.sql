@@ -1,0 +1,13 @@
+ALTER TABLE customer
+DROP CONSTRAINT fk_cust;
+
+ALTER TABLE customer
+ADD CONSTRAINT fk_cust FOREIGN KEY (c_nationkey) REFERENCES nation
+ON UPDATE CASCADE;
+
+ALTER TABLE supplier
+DROP CONSTRAINT fk_supp;
+
+ALTER TABLE supplier
+ADD CONSTRAINT fk_supp FOREIGN KEY (s_nationkey) REFERENCES nation
+ON UPDATE CASCADE;
